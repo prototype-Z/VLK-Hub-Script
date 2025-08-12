@@ -123,7 +123,9 @@ SearchTab:CreateSection("Search for Scripts")
 local ScriptLibrary = {
     ["Fly Script"] = "https://pastebin.com/raw/xyz123",
     ["ESP Script"] = "https://pastebin.com/raw/abc456",
-    ["Speed Script"] = "https://pastebin.com/raw/def789"
+    ["Speed Script"] = "https://pastebin.com/raw/def789",
+    ["Fling GUI"] = "https://pastebin.com/raw/8n6ksY4X",
+    ["Gravity Gun"] = "https://pastebin.com/raw/0SAgBhhZ"
 }
 SearchTab:CreateInput({
     Name = "Search Script",
