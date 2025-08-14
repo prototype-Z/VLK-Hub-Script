@@ -111,7 +111,6 @@ local function ensureFavoritesFile()
     if not HAVE_FS then
         return false
     end
-    -- Some executors auto-create folders on writefile; this is a soft guard
     if not isfile(FAVORITES_FILE) then
         writefile(FAVORITES_FILE, HttpService:JSONEncode({}))
     end
@@ -183,30 +182,24 @@ end
 ----------------------------------------------------------------
 -- UI: Dynamic Tabs from scripts.json
 ----------------------------------------------------------------
-local createdTabs = {} -- (optional keep)
-
+local createdTabs = {}
 if scriptsData then
     for category, scripts in pairs(scriptsData) do
         local tab = Window:CreateTab("📂 " .. tostring(category))
         createdTabs[category] = tab
 
         for name, url in pairs(scripts) do
-            -- Run button
             tab:CreateButton({
                 Name = tostring(name),
                 Callback = function()
                     safeLoad(name, url)
                 end
             })
-            -- Add to favorites button
             tab:CreateButton({
                 Name = "⭐ Add to Favorites: " .. tostring(name),
                 Callback = function()
                     addFavorite(name, url)
-                    -- Also refresh the favorites tab UI after adding
                     task.delay(0.05, function()
-                        -- tiny delay to ensure UI is ready
-                        -- (refresh function declared below)
                         if typeof(_G.__refreshFavoritesTab) == "function" then
                             _G.__refreshFavoritesTab()
                         end
@@ -218,25 +211,21 @@ if scriptsData then
 end
 
 ----------------------------------------------------------------
--- UI: Favorites Tab (with remove buttons)
+-- UI: Favorites Tab
 ----------------------------------------------------------------
 local FavoritesTab = Window:CreateTab("⭐ Favorites")
-
 local function drawFavorites()
     FavoritesTab:ClearElements()
-
     if not HAVE_FS then
         FavoritesTab:CreateParagraph({
             Title = "Favorites Disabled",
-            Content = "Your executor doesn't support file APIs (readfile/writefile). Favorites won't persist."
+            Content = "Your executor doesn't support file APIs."
         })
     end
-
     if #favorites == 0 then
         FavoritesTab:CreateLabel("No favorites yet. Add some from any category!")
         return
     end
-
     for _, fav in ipairs(favorites) do
         FavoritesTab:CreateButton({
             Name = "▶ " .. fav.name,
@@ -252,7 +241,6 @@ local function drawFavorites()
             end
         })
     end
-
     FavoritesTab:CreateButton({
         Name = "🔄 Reload Favorites (from file)",
         Callback = function()
@@ -262,12 +250,11 @@ local function drawFavorites()
         end
     })
 end
-
 _G.__refreshFavoritesTab = drawFavorites
 drawFavorites()
 
 ----------------------------------------------------------------
--- UI: Search Tab
+-- UI: Search Tab (local scripts.json search)
 ----------------------------------------------------------------
 local SearchTab = Window:CreateTab("🔍 Search")
 SearchTab:CreateInput({
@@ -280,7 +267,6 @@ SearchTab:CreateInput({
             notify("Tip", "Type a script name to search.", 2)
             return
         end
-
         local found = false
         for category, scripts in pairs(scriptsData) do
             for name, url in pairs(scripts) do
@@ -299,21 +285,6 @@ SearchTab:CreateInput({
 })
 
 ----------------------------------------------------------------
--- UI: Credits / Update
-----------------------------------------------------------------
-local CreditsTab = Window:CreateTab("📜 Credits")
-CreditsTab:CreateLabel("Developed by: Velkzie 🖤")
-CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
-CreditsTab:CreateParagraph({
-    Title = "About",
-    Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
-})
-CreditsTab:CreateButton({
-    Name = "Check for Updates",
-    Callback = checkForUpdates
-})
-
-----------------------------------------------------------------
 -- 🌐 ScriptBlox Tab
 ----------------------------------------------------------------
 local function fetchScriptsFromAPI(apiUrl)
@@ -324,7 +295,6 @@ local function fetchScriptsFromAPI(apiUrl)
         notify("Error", "Failed to connect to ScriptBlox API.", 4)
         return nil
     end
-
     local success, data = pcall(function()
         return HttpService:JSONDecode(response)
     end)
@@ -348,8 +318,6 @@ local function runScriptBloxScript(scriptName, code)
 end
 
 local ScriptBloxTab = Window:CreateTab("🌐 ScriptBlox")
-
--- Search bar
 ScriptBloxTab:CreateInput({
     Name = "Search ScriptBlox",
     PlaceholderText = "Type game or script name...",
@@ -357,8 +325,6 @@ ScriptBloxTab:CreateInput({
     Callback = function(query)
         if query == "" then return end
         ScriptBloxTab:ClearElements()
-
-        -- Add back the input box after clearing
         ScriptBloxTab:CreateInput({
             Name = "Search ScriptBlox",
             PlaceholderText = "Type game or script name...",
@@ -369,7 +335,6 @@ ScriptBloxTab:CreateInput({
                 end
             end
         })
-
         local results = fetchScriptsFromAPI("https://scriptblox.com/api/script/search?q=" .. HttpService:UrlEncode(query))
         if results and #results > 0 then
             for _, script in ipairs(results) do
@@ -387,14 +352,10 @@ ScriptBloxTab:CreateInput({
         end
     end
 })
-
--- Trending Scripts button
 ScriptBloxTab:CreateButton({
     Name = "🔥 Show Trending Scripts",
     Callback = function()
         ScriptBloxTab:ClearElements()
-
-        -- Add back search input
         ScriptBloxTab:CreateInput({
             Name = "Search ScriptBlox",
             PlaceholderText = "Type game or script name...",
@@ -405,7 +366,6 @@ ScriptBloxTab:CreateButton({
                 end
             end
         })
-
         local results = fetchScriptsFromAPI("https://scriptblox.com/api/script/trending")
         if results and #results > 0 then
             for _, script in ipairs(results) do
@@ -424,8 +384,20 @@ ScriptBloxTab:CreateButton({
     end
 })
 
+----------------------------------------------------------------
+-- UI: Credits / Update
+----------------------------------------------------------------
+local CreditsTab = Window:CreateTab("📜 Credits")
+CreditsTab:CreateLabel("Developed by: Velkzie 🖤")
+CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
+CreditsTab:CreateParagraph({
+    Title = "About",
+    Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
+})
+CreditsTab:CreateButton({
+    Name = "Check for Updates",
+    Callback = checkForUpdates
+})
+
 -- Welcome
 notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
-
-
-
