@@ -1,7 +1,6 @@
 --[[
     VLK Hub (Pro Edition)
     ✦ By Velkzie ✦
-    Dynamic, Safe, and Easy to Update
 ]]
 
 local HUB_VERSION = "1.1.0"
@@ -249,3 +248,4 @@ CreditsTab:CreateButton({ Name = "Check for Updates", Callback = checkForUpdates
 
 -- Welcome
 notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
+
