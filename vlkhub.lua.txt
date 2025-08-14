@@ -1,11 +1,12 @@
 --[[
     VLK Hub (Pro Edition)
     ✦ By Velkzie ✦
-    Fun + Harmless + Professional Layout
+    Dynamic, Safe, and Easy to Update
 ]]
 
-local HUB_VERSION = "1.0.0"
-local VERSION_URL = "https://raw.githubusercontent.com/Velkzie/VLKHub/main/version.txt"
+local HUB_VERSION = "1.1.0"
+local VERSION_URL = "https://raw.githubusercontent.com/YOURUSERNAME/VLKHub/main/version.txt"
+local SCRIPTS_URL = "https://raw.githubusercontent.com/YOURUSERNAME/VLKHub/main/scripts.json"
 
 -- Load Rayfield
 local success, Rayfield = pcall(function()
@@ -23,8 +24,6 @@ local Window = Rayfield:CreateWindow({
     LoadingTitle = "VLK Scripts",
     LoadingSubtitle = "by Velkzie",
     Theme = "Amethyst",
-    DisableRayfieldPrompts = false,
-    DisableBuildWarnings = false,
     ConfigurationSaving = {
         Enabled = true,
         FolderName = "VLK_Hub",
@@ -32,134 +31,129 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
--- Safe Loader
+-- Notify Function
+local function notify(title, text, duration)
+    Rayfield:Notify({ Title = title, Content = text, Duration = duration or 3 })
+end
+
+-- Safe Script Loader
 local function safeLoad(name, url)
-    Rayfield:Notify({ Title = "Loading " .. name, Content = "Please wait...", Duration = 2 })
-    local ok, err = pcall(function()
-        loadstring(game:HttpGet(url))()
+    notify("Loading " .. name, "Please wait...", 2)
+    task.spawn(function()
+        local ok, data = pcall(function()
+            return game:HttpGet(url)
+        end)
+        if not ok or not data or data == "" then
+            notify("Error", "Failed to load " .. name .. " — invalid or missing link!", 4)
+            return
+        end
+        local runOk, err = pcall(function()
+            loadstring(data)()
+        end)
+        if runOk then
+            notify("✅ Loaded " .. name, "Enjoy!", 2)
+        else
+            notify("❌ Script Error", err, 5)
+        end
     end)
-    if not ok then
-        Rayfield:Notify({ Title = "Error Loading Script", Content = tostring(err), Duration = 5 })
-    else
-        Rayfield:Notify({ Title = "Loaded " .. name, Content = "Enjoy!", Duration = 2 })
-    end
 end
 
 -- Update Checker
 local function checkForUpdates()
-    local ok, latest = pcall(function()
-        return game:HttpGet(VERSION_URL)
+    task.spawn(function()
+        local ok, latest = pcall(function()
+            return game:HttpGet(VERSION_URL)
+        end)
+        if ok and latest and latest ~= HUB_VERSION then
+            notify("Update Available!", "Your version: " .. HUB_VERSION .. " | Latest: " .. latest, 5)
+        else
+            notify("Up to Date", "You're running the latest version!", 3)
+        end
     end)
-    if ok and latest and latest ~= HUB_VERSION then
-        Rayfield:Notify({
-            Title = "Update Available!",
-            Content = "Your version: " .. HUB_VERSION .. " | Latest: " .. latest,
-            Duration = 5
-        })
+end
+
+-- Load Script List
+local scriptsData
+local function loadScripts()
+    local ok, data = pcall(function()
+        return game:HttpGet(SCRIPTS_URL)
+    end)
+    if ok then
+        local decoded = game:GetService("HttpService"):JSONDecode(data)
+        if decoded then
+            scriptsData = decoded
+        end
     else
-        Rayfield:Notify({
-            Title = "Up to Date",
-            Content = "You're running the latest version!",
-            Duration = 3
+        notify("Error", "Failed to load script list from server!", 4)
+    end
+end
+loadScripts()
+
+-- Create Tabs Dynamically
+if scriptsData then
+    for category, scripts in pairs(scriptsData) do
+        local tab = Window:CreateTab("📂 " .. category)
+        for name, url in pairs(scripts) do
+            tab:CreateButton({
+                Name = name,
+                Callback = function()
+                    safeLoad(name, url)
+                end
+            })
+        end
+    end
+end
+
+-- Favorites Tab
+local favorites = {}
+local FavoritesTab = Window:CreateTab("⭐ Favorites")
+local function refreshFavoritesTab()
+    FavoritesTab:ClearElements()
+    for _, fav in ipairs(favorites) do
+        FavoritesTab:CreateButton({
+            Name = fav.name,
+            Callback = function()
+                safeLoad(fav.name, fav.url)
+            end
         })
     end
 end
 
--- Main Tab
-local MainTab = Window:CreateTab("🏠 Home")
-MainTab:CreateSection("Main Scripts")
-MainTab:CreateButton({
-    Name = "Infinite Yield (Admin Commands)",
-    Callback = function()
-        safeLoad("Infinite Yield", "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source")
-    end
-})
-MainTab:CreateButton({
-    Name = "FE Animations Pack",
-    Callback = function()
-        safeLoad("FE Animations", "https://raw.githubusercontent.com/ExploitFin/AquaMatrix/refs/heads/AquaMatrix/AquaMatrix")
-    end
-})
-MainTab:CreateButton({
-    Name = "Check for Updates",
-    Callback = checkForUpdates
-})
-
--- Fun Tab
-local FunTab = Window:CreateTab("🎮 Fun Features")
-FunTab:CreateSection("Harmless Fun")
-FunTab:CreateButton({
-    Name = "Fling GUI",
-    Callback = function()
-        safeLoad("Fling GUI", "https://pastebin.com/raw/8n6ksY4X")
-    end
-})
-FunTab:CreateButton({
-    Name = "Gravity Gun",
-    Callback = function()
-        safeLoad("Gravity Gun", "https://pastebin.com/raw/0SAgBhhZ")
-    end
-})
-
--- Troll Tab
-local TrollTab = Window:CreateTab("🤡 Troll (Safe)")
-TrollTab:CreateSection("Non-NSFW Troll Scripts")
-TrollTab:CreateButton({
-    Name = "Spin Script",
-    Callback = function()
-        safeLoad("Spin", "https://pastebin.com/raw/1K4A5vJ3")
-    end
-})
-TrollTab:CreateButton({
-    Name = "Confuse Controls",
-    Callback = function()
-        safeLoad("Confuse Controls", "https://pastebin.com/raw/zY58bq7W")
-    end
-})
-
 -- Search Tab
-local SearchTab = Window:CreateTab("🔍 Script Search")
-SearchTab:CreateSection("Search for Scripts")
-local ScriptLibrary = {
-    ["Fly Script"] = "https://pastebin.com/raw/xyz123",
-    ["ESP Script"] = "https://pastebin.com/raw/abc456",
-    ["Speed Script"] = "https://pastebin.com/raw/def789",
-    ["Fling GUI"] = "https://pastebin.com/raw/8n6ksY4X",
-    ["Gravity Gun"] = "https://pastebin.com/raw/0SAgBhhZ"
-}
+local SearchTab = Window:CreateTab("🔍 Search")
 SearchTab:CreateInput({
     Name = "Search Script",
     PlaceholderText = "Type script name...",
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
         local found = false
-        for name, url in pairs(ScriptLibrary) do
-            if string.find(string.lower(name), string.lower(text)) then
-                safeLoad(name, url)
-                found = true
-                break
+        for category, scripts in pairs(scriptsData) do
+            for name, url in pairs(scripts) do
+                if string.find(string.lower(name), string.lower(text)) then
+                    safeLoad(name, url)
+                    found = true
+                    break
+                end
             end
         end
         if not found then
-            Rayfield:Notify({ Title = "No Script Found", Content = "Try another search term", Duration = 3 })
+            notify("No Script Found", "Try another search term", 3)
         end
     end
 })
 
 -- Credits Tab
 local CreditsTab = Window:CreateTab("📜 Credits")
-CreditsTab:CreateSection("About VLK Hub")
 CreditsTab:CreateLabel("Developed by: Velkzie 💙")
-CreditsTab:CreateLabel("Discord: discord.gg/5wdySGMG")
-CreditsTab:CreateLabel("GitHub: github.com/Velkzie")
+CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
 CreditsTab:CreateParagraph({
     Title = "About",
     Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No NSFW, no malicious code — just clean fun."
 })
-
--- Notify on load
-Rayfield:Notify({
-    Title = "VLK Hub Pro Loaded!",
-    Content = "Welcome back, Velkzie 💙",
-    Duration = 4
+CreditsTab:CreateButton({
+    Name = "Check for Updates",
+    Callback = checkForUpdates
 })
+
+-- Welcome
+notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
