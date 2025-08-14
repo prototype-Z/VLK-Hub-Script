@@ -1,6 +1,7 @@
 --[[
     VLK Hub (Pro Edition)
     ✦ By Velkzie ✦
+    Dynamic, Safe, and Easy to Update
 ]]
 
 local HUB_VERSION = "1.1.0"
@@ -101,8 +102,14 @@ local function loadScriptsJson()
 end
 loadScriptsJson()
 
+-- Reload scripts button
+local function reloadScripts()
+    loadScriptsJson()
+    notify("Scripts Reloaded", "Latest scripts.json loaded from GitHub!", 3)
+end
+
 ----------------------------------------------------------------
--- Favorites (persistent)
+-- Favorites
 ----------------------------------------------------------------
 local favorites = {}
 
@@ -120,9 +127,13 @@ local function loadFavorites()
         return
     end
     if not ensureFavoritesFile() then return end
-    local ok, data = pcall(function() return readfile(FAVORITES_FILE) end)
+    local ok, data = pcall(function()
+        return readfile(FAVORITES_FILE)
+    end)
     if ok and data and #data > 0 then
-        local okDecode, list = pcall(function() return HttpService:JSONDecode(data) end)
+        local okDecode, list = pcall(function()
+            return HttpService:JSONDecode(data)
+        end)
         if okDecode and type(list) == "table" then
             favorites = list
         else
@@ -168,10 +179,12 @@ local function removeFavorite(name)
     notify("Removed", name .. " has been removed from favorites.", 3)
 end
 
-if HAVE_FS then loadFavorites() end
+if HAVE_FS then
+    loadFavorites()
+end
 
 ----------------------------------------------------------------
--- UI: Dynamic Tabs from scripts.json
+-- Dynamic Tabs from scripts.json
 ----------------------------------------------------------------
 if scriptsData then
     for category, scripts in pairs(scriptsData) do
@@ -179,15 +192,14 @@ if scriptsData then
         for name, url in pairs(scripts) do
             tab:CreateButton({
                 Name = tostring(name),
-                Callback = function() safeLoad(name, url) end
+                Callback = function()
+                    safeLoad(name, url)
+                end
             })
             tab:CreateButton({
                 Name = "⭐ Add to Favorites: " .. tostring(name),
                 Callback = function()
                     addFavorite(name, url)
-                    if typeof(_G.__refreshFavoritesTab) == "function" then
-                        task.delay(0.05, _G.__refreshFavoritesTab)
-                    end
                 end
             })
         end
@@ -195,28 +207,44 @@ if scriptsData then
 end
 
 ----------------------------------------------------------------
--- UI: Favorites Tab
+-- Favorites Tab
 ----------------------------------------------------------------
 local FavoritesTab = Window:CreateTab("⭐ Favorites")
+
 local function drawFavorites()
     FavoritesTab:ClearElements()
     if not HAVE_FS then
-        FavoritesTab:CreateParagraph({ Title = "Favorites Disabled", Content = "Executor doesn't support file APIs." })
+        FavoritesTab:CreateParagraph({
+            Title = "Favorites Disabled",
+            Content = "Your executor doesn't support file APIs (readfile/writefile). Favorites won't persist."
+        })
     end
     if #favorites == 0 then
-        FavoritesTab:CreateLabel("No favorites yet.")
+        FavoritesTab:CreateLabel("No favorites yet. Add some from any category!")
         return
     end
     for _, fav in ipairs(favorites) do
-        FavoritesTab:CreateButton({ Name = "▶ " .. fav.name, Callback = function() safeLoad(fav.name, fav.url) end })
-        FavoritesTab:CreateButton({ Name = "🗑️ Remove: " .. fav.name, Callback = function() removeFavorite(fav.name) drawFavorites() end })
+        FavoritesTab:CreateButton({
+            Name = "▶ " .. fav.name,
+            Callback = function()
+                safeLoad(fav.name, fav.url)
+            end
+        })
+        FavoritesTab:CreateButton({
+            Name = "🗑️ Remove: " .. fav.name,
+            Callback = function()
+                removeFavorite(fav.name)
+                drawFavorites()
+            end
+        })
     end
 end
+
 _G.__refreshFavoritesTab = drawFavorites
 drawFavorites()
 
 ----------------------------------------------------------------
--- UI: Search Tab (your scripts.json)
+-- Search Tab
 ----------------------------------------------------------------
 local SearchTab = Window:CreateTab("🔍 Search")
 SearchTab:CreateInput({
@@ -225,27 +253,45 @@ SearchTab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
         local query = string.lower(text or "")
-        if query == "" then notify("Tip", "Type a script name to search.", 2) return end
+        if query == "" then
+            notify("Tip", "Type a script name to search.", 2)
+            return
+        end
+        local found = false
         for category, scripts in pairs(scriptsData) do
             for name, url in pairs(scripts) do
                 if string.find(string.lower(name), query, 1, true) then
                     safeLoad(name, url)
-                    return
+                    found = true
+                    break
                 end
             end
+            if found then break end
         end
-        notify("No Script Found", "Try another search term", 3)
+        if not found then
+            notify("No Script Found", "Try another search term", 3)
+        end
     end
 })
 
 ----------------------------------------------------------------
--- Credits Tab
+-- Credits / Update
 ----------------------------------------------------------------
 local CreditsTab = Window:CreateTab("📜 Credits")
 CreditsTab:CreateLabel("Developed by: Velkzie 🖤")
 CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
-CreditsTab:CreateButton({ Name = "Check for Updates", Callback = checkForUpdates })
+CreditsTab:CreateParagraph({
+    Title = "About",
+    Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
+})
+CreditsTab:CreateButton({
+    Name = "Check for Updates",
+    Callback = checkForUpdates
+})
+CreditsTab:CreateButton({
+    Name = "🔄 Reload Scripts (from GitHub)",
+    Callback = reloadScripts
+})
 
 -- Welcome
 notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
-
