@@ -1,13 +1,33 @@
 {
     "Main Scripts": {
-        "Infinite Yield (Admin Commands)": "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source",
-        "R15 Dance": "https://pastefy.app/YZoglOyJ/raw",
-        "R6 Dance": "https://pastefy.app/wa3v2Vgm/raw"
+        "Infinite Yield (Admin Commands)": {
+            "url": "https://raw.githubusercontent.com/EdgeIY/infiniteyield/master/source",
+            "description": "Powerful admin command panel with hundreds of commands.",
+            "icon": "rbxassetid://6031075938"
+        },
+        "R15 Dance": {
+            "url": "https://pastefy.app/YZoglOyJ/raw",
+            "description": "Play fun dance animations on R15 rigs.",
+            "icon": "rbxassetid://6031071052"
+        },
+        "R6 Dance": {
+            "url": "https://pastefy.app/wa3v2Vgm/raw",
+            "description": "Play fun dance animations on R6 rigs.",
+            "icon": "rbxassetid://6031071053"
+        }
     },
     "Fun Features": {
-        "Free Emote Script": "https://raw.githubusercontent.com/Gazer-Ha/Free-emote/refs/heads/main/Delta%20mad%20stuffs"
+        "Free Emote Script": {
+            "url": "https://raw.githubusercontent.com/Gazer-Ha/Free-emote/refs/heads/main/Delta%20mad%20stuffs",
+            "description": "Unlock all emotes for free in compatible games.",
+            "icon": "rbxassetid://6031071056"
+        }
     },
     "Troll Scripts": {
-        "Chat Bypasser": "https://raw.githubusercontent.com/shakk-code/SigmaBypasser/refs/heads/main/source"
+        "Chat Bypasser": {
+            "url": "https://raw.githubusercontent.com/shakk-code/SigmaBypasser/refs/heads/main/source",
+            "description": "Bypass Roblox chat filters (use responsibly).",
+            "icon": "rbxassetid://6031071057"
+        }
     }
 }
