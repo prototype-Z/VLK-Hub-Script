@@ -6,7 +6,7 @@
 
 local HUB_VERSION = "1.1.0"
 local VERSION_URL = "https://raw.githubusercontent.com/Velkzie/VLKHub/main/version.txt"
-local SCRIPTS_URL = "https://raw.githubusercontent.com/Velkzie/VLKHub/main/scripts.json"
+local SCRIPTS_URL = "https://raw.githubusercontent.com/prototype-Z/VLK-Hub-Script/main/scripts.json"
 
 local HttpService = game:GetService("HttpService")
 
@@ -315,4 +315,5 @@ CreditsTab:CreateButton({
 
 -- Welcome
 notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
+
 
