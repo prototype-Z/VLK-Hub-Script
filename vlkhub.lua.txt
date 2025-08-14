@@ -5,14 +5,23 @@
 ]]
 
 local HUB_VERSION = "1.1.0"
-local VERSION_URL = "https://raw.githubusercontent.com/YOURUSERNAME/VLKHub/main/version.txt"
-local SCRIPTS_URL = "https://raw.githubusercontent.com/YOURUSERNAME/VLKHub/main/scripts.json"
+local VERSION_URL = "https://raw.githubusercontent.com/Velkzie/VLKHub/main/version.txt"
+local SCRIPTS_URL = "https://raw.githubusercontent.com/Velkzie/VLKHub/main/scripts.json"
+
+local HttpService = game:GetService("HttpService")
+
+-- File paths for persistent data (Executor must support readfile/writefile)
+local FAVORITES_FOLDER = "VLK_Hub"
+local FAVORITES_FILE = FAVORITES_FOLDER .. "/Favorites.json"
+
+-- Guard for file APIs
+local HAVE_FS = (typeof(isfile) == "function") and (typeof(readfile) == "function") and (typeof(writefile) == "function")
 
 -- Load Rayfield
-local success, Rayfield = pcall(function()
+local okRay, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
-if not success or not Rayfield then
+if not okRay or not Rayfield then
     warn("[VLK Hub] Failed to load Rayfield!")
     return
 end
@@ -31,12 +40,12 @@ local Window = Rayfield:CreateWindow({
     },
 })
 
--- Notify Function
+-- Notify helper
 local function notify(title, text, duration)
     Rayfield:Notify({ Title = title, Content = text, Duration = duration or 3 })
 end
 
--- Safe Script Loader
+-- Safe script loader
 local function safeLoad(name, url)
     notify("Loading " .. name, "Please wait...", 2)
     task.spawn(function()
@@ -58,7 +67,7 @@ local function safeLoad(name, url)
     end)
 end
 
--- Update Checker
+-- Update checker
 local function checkForUpdates()
     task.spawn(function()
         local ok, latest = pcall(function()
@@ -72,69 +81,216 @@ local function checkForUpdates()
     end)
 end
 
--- Load Script List
-local scriptsData
-local function loadScripts()
+-- Load scripts.json
+local scriptsData = {}
+local function loadScriptsJson()
     local ok, data = pcall(function()
         return game:HttpGet(SCRIPTS_URL)
     end)
-    if ok then
-        local decoded = game:GetService("HttpService"):JSONDecode(data)
-        if decoded then
-            scriptsData = decoded
-        end
+    if not ok or not data or data == "" then
+        notify("Error", "Failed to load script list from server!", 5)
+        return
+    end
+    local okDecode, decoded = pcall(function()
+        return HttpService:JSONDecode(data)
+    end)
+    if okDecode and type(decoded) == "table" then
+        scriptsData = decoded
     else
-        notify("Error", "Failed to load script list from server!", 4)
+        notify("Error", "scripts.json is not valid JSON.", 5)
     end
 end
-loadScripts()
+loadScriptsJson()
 
--- Create Tabs Dynamically
+----------------------------------------------------------------
+-- Favorites (persistent)
+----------------------------------------------------------------
+local favorites = {}
+
+local function ensureFavoritesFile()
+    if not HAVE_FS then
+        return false
+    end
+    -- Some executors auto-create folders on writefile; this is a soft guard
+    if not isfile(FAVORITES_FILE) then
+        writefile(FAVORITES_FILE, HttpService:JSONEncode({}))
+    end
+    return true
+end
+
+local function loadFavorites()
+    if not HAVE_FS then
+        notify("Heads up", "Your executor doesn't support saving favorites.", 5)
+        return
+    end
+    if not ensureFavoritesFile() then return end
+    local ok, data = pcall(function()
+        return readfile(FAVORITES_FILE)
+    end)
+    if ok and data and #data > 0 then
+        local okDecode, list = pcall(function()
+            return HttpService:JSONDecode(data)
+        end)
+        if okDecode and type(list) == "table" then
+            favorites = list
+        else
+            favorites = {}
+            writefile(FAVORITES_FILE, HttpService:JSONEncode(favorites))
+        end
+    else
+        favorites = {}
+        writefile(FAVORITES_FILE, HttpService:JSONEncode(favorites))
+    end
+end
+
+local function saveFavorites()
+    if not HAVE_FS then return end
+    writefile(FAVORITES_FILE, HttpService:JSONEncode(favorites))
+end
+
+local function favoriteIndexByName(name)
+    for i, fav in ipairs(favorites) do
+        if fav.name == name then return i end
+    end
+    return nil
+end
+
+local function addFavorite(name, url)
+    if favoriteIndexByName(name) then
+        notify("Already a Favorite", name .. " is already in your favorites.", 3)
+        return
+    end
+    table.insert(favorites, { name = name, url = url })
+    saveFavorites()
+    notify("Added to Favorites", name .. " has been added!", 3)
+end
+
+local function removeFavorite(name)
+    local idx = favoriteIndexByName(name)
+    if not idx then
+        notify("Not Found", name .. " is not in favorites.", 3)
+        return
+    end
+    table.remove(favorites, idx)
+    saveFavorites()
+    notify("Removed", name .. " has been removed from favorites.", 3)
+end
+
+if HAVE_FS then
+    loadFavorites()
+end
+
+----------------------------------------------------------------
+-- UI: Dynamic Tabs from scripts.json
+----------------------------------------------------------------
+local createdTabs = {} -- (optional keep)
+
 if scriptsData then
     for category, scripts in pairs(scriptsData) do
-        local tab = Window:CreateTab("📂 " .. category)
+        local tab = Window:CreateTab("📂 " .. tostring(category))
+        createdTabs[category] = tab
+
         for name, url in pairs(scripts) do
+            -- Run button
             tab:CreateButton({
-                Name = name,
+                Name = tostring(name),
                 Callback = function()
                     safeLoad(name, url)
+                end
+            })
+            -- Add to favorites button
+            tab:CreateButton({
+                Name = "⭐ Add to Favorites: " .. tostring(name),
+                Callback = function()
+                    addFavorite(name, url)
+                    -- Also refresh the favorites tab UI after adding
+                    task.delay(0.05, function()
+                        -- tiny delay to ensure UI is ready
+                        -- (refresh function declared below)
+                        if typeof(_G.__refreshFavoritesTab) == "function" then
+                            _G.__refreshFavoritesTab()
+                        end
+                    end)
                 end
             })
         end
     end
 end
 
--- Favorites Tab
-local favorites = {}
+----------------------------------------------------------------
+-- UI: Favorites Tab (with remove buttons)
+----------------------------------------------------------------
 local FavoritesTab = Window:CreateTab("⭐ Favorites")
-local function refreshFavoritesTab()
+
+local function drawFavorites()
     FavoritesTab:ClearElements()
+
+    if not HAVE_FS then
+        FavoritesTab:CreateParagraph({
+            Title = "Favorites Disabled",
+            Content = "Your executor doesn't support file APIs (readfile/writefile). Favorites won't persist."
+        })
+    end
+
+    if #favorites == 0 then
+        FavoritesTab:CreateLabel("No favorites yet. Add some from any category!")
+        return
+    end
+
     for _, fav in ipairs(favorites) do
         FavoritesTab:CreateButton({
-            Name = fav.name,
+            Name = "▶ " .. fav.name,
             Callback = function()
                 safeLoad(fav.name, fav.url)
             end
         })
+        FavoritesTab:CreateButton({
+            Name = "🗑️ Remove: " .. fav.name,
+            Callback = function()
+                removeFavorite(fav.name)
+                drawFavorites()
+            end
+        })
     end
+
+    FavoritesTab:CreateButton({
+        Name = "🔄 Reload Favorites (from file)",
+        Callback = function()
+            loadFavorites()
+            drawFavorites()
+            notify("Reloaded", "Favorites reloaded from file.", 3)
+        end
+    })
 end
 
--- Search Tab
+_G.__refreshFavoritesTab = drawFavorites
+drawFavorites()
+
+----------------------------------------------------------------
+-- UI: Search Tab
+----------------------------------------------------------------
 local SearchTab = Window:CreateTab("🔍 Search")
 SearchTab:CreateInput({
     Name = "Search Script",
     PlaceholderText = "Type script name...",
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
+        local query = string.lower(text or "")
+        if query == "" then
+            notify("Tip", "Type a script name to search.", 2)
+            return
+        end
+
         local found = false
         for category, scripts in pairs(scriptsData) do
             for name, url in pairs(scripts) do
-                if string.find(string.lower(name), string.lower(text)) then
+                if string.find(string.lower(name), query, 1, true) then
                     safeLoad(name, url)
                     found = true
                     break
                 end
             end
+            if found then break end
         end
         if not found then
             notify("No Script Found", "Try another search term", 3)
@@ -142,13 +298,15 @@ SearchTab:CreateInput({
     end
 })
 
--- Credits Tab
+----------------------------------------------------------------
+-- UI: Credits / Update
+----------------------------------------------------------------
 local CreditsTab = Window:CreateTab("📜 Credits")
-CreditsTab:CreateLabel("Developed by: Velkzie 💙")
+CreditsTab:CreateLabel("Developed by: Velkzie 🖤")
 CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
 CreditsTab:CreateParagraph({
     Title = "About",
-    Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No NSFW, no malicious code — just clean fun."
+    Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
 })
 CreditsTab:CreateButton({
     Name = "Check for Updates",
