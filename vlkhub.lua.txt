@@ -10,7 +10,7 @@ local SCRIPTS_URL = "https://raw.githubusercontent.com/prototype-Z/VLK-Hub-Scrip
 
 local HttpService = game:GetService("HttpService")
 
--- File paths for persistent data (Executor must support readfile/writefile)
+-- File paths for persistent data
 local FAVORITES_FOLDER = "VLK_Hub"
 local FAVORITES_FILE = FAVORITES_FOLDER .. "/Favorites.json"
 
@@ -108,9 +108,7 @@ loadScriptsJson()
 local favorites = {}
 
 local function ensureFavoritesFile()
-    if not HAVE_FS then
-        return false
-    end
+    if not HAVE_FS then return false end
     if not isfile(FAVORITES_FILE) then
         writefile(FAVORITES_FILE, HttpService:JSONEncode({}))
     end
@@ -123,13 +121,9 @@ local function loadFavorites()
         return
     end
     if not ensureFavoritesFile() then return end
-    local ok, data = pcall(function()
-        return readfile(FAVORITES_FILE)
-    end)
+    local ok, data = pcall(function() return readfile(FAVORITES_FILE) end)
     if ok and data and #data > 0 then
-        local okDecode, list = pcall(function()
-            return HttpService:JSONDecode(data)
-        end)
+        local okDecode, list = pcall(function() return HttpService:JSONDecode(data) end)
         if okDecode and type(list) == "table" then
             favorites = list
         else
@@ -175,35 +169,26 @@ local function removeFavorite(name)
     notify("Removed", name .. " has been removed from favorites.", 3)
 end
 
-if HAVE_FS then
-    loadFavorites()
-end
+if HAVE_FS then loadFavorites() end
 
 ----------------------------------------------------------------
 -- UI: Dynamic Tabs from scripts.json
 ----------------------------------------------------------------
-local createdTabs = {}
 if scriptsData then
     for category, scripts in pairs(scriptsData) do
         local tab = Window:CreateTab("📂 " .. tostring(category))
-        createdTabs[category] = tab
-
         for name, url in pairs(scripts) do
             tab:CreateButton({
                 Name = tostring(name),
-                Callback = function()
-                    safeLoad(name, url)
-                end
+                Callback = function() safeLoad(name, url) end
             })
             tab:CreateButton({
                 Name = "⭐ Add to Favorites: " .. tostring(name),
                 Callback = function()
                     addFavorite(name, url)
-                    task.delay(0.05, function()
-                        if typeof(_G.__refreshFavoritesTab) == "function" then
-                            _G.__refreshFavoritesTab()
-                        end
-                    end)
+                    if typeof(_G.__refreshFavoritesTab) == "function" then
+                        task.delay(0.05, _G.__refreshFavoritesTab)
+                    end
                 end
             })
         end
@@ -217,44 +202,22 @@ local FavoritesTab = Window:CreateTab("⭐ Favorites")
 local function drawFavorites()
     FavoritesTab:ClearElements()
     if not HAVE_FS then
-        FavoritesTab:CreateParagraph({
-            Title = "Favorites Disabled",
-            Content = "Your executor doesn't support file APIs."
-        })
+        FavoritesTab:CreateParagraph({ Title = "Favorites Disabled", Content = "Executor doesn't support file APIs." })
     end
     if #favorites == 0 then
-        FavoritesTab:CreateLabel("No favorites yet. Add some from any category!")
+        FavoritesTab:CreateLabel("No favorites yet.")
         return
     end
     for _, fav in ipairs(favorites) do
-        FavoritesTab:CreateButton({
-            Name = "▶ " .. fav.name,
-            Callback = function()
-                safeLoad(fav.name, fav.url)
-            end
-        })
-        FavoritesTab:CreateButton({
-            Name = "🗑️ Remove: " .. fav.name,
-            Callback = function()
-                removeFavorite(fav.name)
-                drawFavorites()
-            end
-        })
+        FavoritesTab:CreateButton({ Name = "▶ " .. fav.name, Callback = function() safeLoad(fav.name, fav.url) end })
+        FavoritesTab:CreateButton({ Name = "🗑️ Remove: " .. fav.name, Callback = function() removeFavorite(fav.name) drawFavorites() end })
     end
-    FavoritesTab:CreateButton({
-        Name = "🔄 Reload Favorites (from file)",
-        Callback = function()
-            loadFavorites()
-            drawFavorites()
-            notify("Reloaded", "Favorites reloaded from file.", 3)
-        end
-    })
 end
 _G.__refreshFavoritesTab = drawFavorites
 drawFavorites()
 
 ----------------------------------------------------------------
--- UI: Search Tab (local scripts.json search)
+-- UI: Search Tab (your scripts.json)
 ----------------------------------------------------------------
 local SearchTab = Window:CreateTab("🔍 Search")
 SearchTab:CreateInput({
@@ -263,57 +226,59 @@ SearchTab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
         local query = string.lower(text or "")
-        if query == "" then
-            notify("Tip", "Type a script name to search.", 2)
-            return
-        end
-        local found = false
+        if query == "" then notify("Tip", "Type a script name to search.", 2) return end
         for category, scripts in pairs(scriptsData) do
             for name, url in pairs(scripts) do
                 if string.find(string.lower(name), query, 1, true) then
                     safeLoad(name, url)
-                    found = true
-                    break
+                    return
                 end
             end
-            if found then break end
         end
-        if not found then
-            notify("No Script Found", "Try another search term", 3)
-        end
+        notify("No Script Found", "Try another search term", 3)
     end
 })
 
 ----------------------------------------------------------------
--- 🌐 ScriptBlox Tab
+-- 🌐 ScriptBlox Tab (working version)
 ----------------------------------------------------------------
-local function fetchScriptsFromAPI(apiUrl)
-    local ok, response = pcall(function()
-        return game:HttpGet(apiUrl)
-    end)
-    if not ok or not response or response == "" then
-        notify("Error", "Failed to connect to ScriptBlox API.", 4)
-        return nil
-    end
-    local success, data = pcall(function()
-        return HttpService:JSONDecode(response)
-    end)
-    if success and data and data.result and data.result.scripts then
-        return data.result.scripts
-    else
-        notify("Error", "Invalid ScriptBlox API response.", 4)
-        return nil
-    end
+local function fetchFromAPI(url)
+    local ok, response = pcall(function() return game:HttpGet(url) end)
+    if not ok or not response or response == "" then return nil end
+    local success, data = pcall(function() return HttpService:JSONDecode(response) end)
+    if success then return data else return nil end
 end
 
-local function runScriptBloxScript(scriptName, code)
-    local ok, err = pcall(function()
-        loadstring(code)()
-    end)
-    if ok then
-        notify("✅ Loaded Script", "Executed: " .. scriptName, 3)
+local function fetchRawScript(scriptId)
+    local ok, code = pcall(function() return game:HttpGet("https://scriptblox.com/raw/" .. scriptId) end)
+    if ok and code and code ~= "" then return code else return nil end
+end
+
+local function displayScripts(results, tab)
+    if results and results.result and results.result.scripts then
+        for _, script in ipairs(results.result.scripts) do
+            if script.scriptId then
+                local btnName = (script.title or "Unnamed Script") ..
+                    (script.game and (" | " .. script.game.name) or "")
+                local creator = script.owner and script.owner.username or "Unknown"
+                tab:CreateButton({
+                    Name = btnName,
+                    Callback = function()
+                        local rawCode = fetchRawScript(script.scriptId)
+                        if rawCode then
+                            local ok, err = pcall(function() loadstring(rawCode)() end)
+                            if ok then notify("✅ Loaded Script", "Executed: " .. script.title, 3)
+                            else notify("❌ Script Error", err, 5) end
+                        else
+                            notify("Error", "Failed to fetch raw script for " .. script.title, 4)
+                        end
+                    end
+                })
+                tab:CreateLabel("👤 Author: " .. creator)
+            end
+        end
     else
-        notify("❌ Script Error", err, 5)
+        notify("No Results", "No scripts found.", 3)
     end
 end
 
@@ -325,79 +290,26 @@ ScriptBloxTab:CreateInput({
     Callback = function(query)
         if query == "" then return end
         ScriptBloxTab:ClearElements()
-        ScriptBloxTab:CreateInput({
-            Name = "Search ScriptBlox",
-            PlaceholderText = "Type game or script name...",
-            RemoveTextAfterFocusLost = false,
-            Callback = function(newQuery)
-                if newQuery ~= "" then
-                    ScriptBloxTab:ClearElements()
-                end
-            end
-        })
-        local results = fetchScriptsFromAPI("https://scriptblox.com/api/script/search?q=" .. HttpService:UrlEncode(query))
-        if results and #results > 0 then
-            for _, script in ipairs(results) do
-                if script.script and script.script ~= "" then
-                    ScriptBloxTab:CreateButton({
-                        Name = script.title or "Unnamed Script",
-                        Callback = function()
-                            runScriptBloxScript(script.title or "Unnamed Script", script.script)
-                        end
-                    })
-                end
-            end
-        else
-            notify("No Results", "No scripts found for: " .. query, 3)
-        end
+        local results = fetchFromAPI("https://scriptblox.com/api/script/search?q=" .. HttpService:UrlEncode(query))
+        displayScripts(results, ScriptBloxTab)
     end
 })
 ScriptBloxTab:CreateButton({
     Name = "🔥 Show Trending Scripts",
     Callback = function()
         ScriptBloxTab:ClearElements()
-        ScriptBloxTab:CreateInput({
-            Name = "Search ScriptBlox",
-            PlaceholderText = "Type game or script name...",
-            RemoveTextAfterFocusLost = false,
-            Callback = function(query)
-                if query ~= "" then
-                    ScriptBloxTab:ClearElements()
-                end
-            end
-        })
-        local results = fetchScriptsFromAPI("https://scriptblox.com/api/script/trending")
-        if results and #results > 0 then
-            for _, script in ipairs(results) do
-                if script.script and script.script ~= "" then
-                    ScriptBloxTab:CreateButton({
-                        Name = script.title or "Unnamed Script",
-                        Callback = function()
-                            runScriptBloxScript(script.title or "Unnamed Script", script.script)
-                        end
-                    })
-                end
-            end
-        else
-            notify("Error", "Could not fetch trending scripts.", 3)
-        end
+        local results = fetchFromAPI("https://scriptblox.com/api/script/trending")
+        displayScripts(results, ScriptBloxTab)
     end
 })
 
 ----------------------------------------------------------------
--- UI: Credits / Update
+-- Credits Tab
 ----------------------------------------------------------------
 local CreditsTab = Window:CreateTab("📜 Credits")
 CreditsTab:CreateLabel("Developed by: Velkzie 🖤")
 CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
-CreditsTab:CreateParagraph({
-    Title = "About",
-    Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
-})
-CreditsTab:CreateButton({
-    Name = "Check for Updates",
-    Callback = checkForUpdates
-})
+CreditsTab:CreateButton({ Name = "Check for Updates", Callback = checkForUpdates })
 
 -- Welcome
 notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
