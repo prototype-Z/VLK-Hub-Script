@@ -1,56 +1,76 @@
 --[[
-    VLK Hub Pro++ (All Features Edition)
+    VLK Hub (Pro++) — Upgraded In-Place
     ✦ By Velkzie ✦
+    Dynamic, Animated, and Packed with Tools
+    Features:
+      • Animated gradient theme + theme selector (saved locally)
+      • Loads scripts.json (supports {url, description, icon}) + auto-refresh every 5 min
+      • Script Details panel before running (with Run + Favorite)
+      • Plain Favorites tab (persistent)
+      • Live Search across all categories
+      • Quick Tools (Anti-AFK, Rejoin, Server Hop, Copy IDs, Join Friend placeholder)
+      • MOTD popup (motd.txt) + shown in Credits
+      • Manual Reload button in Credits
 ]]
--- Full implementation based on design, including: animated gradients, theme selector,
--- auto-refreshing scripts list, manual reload, favorites, search, quick tools, MOTD.
 
-local HUB_VERSION = "2.0.0"
+-- ▶ Config
+local HUB_VERSION = "2.1.0"
 local VERSION_URL = "https://raw.githubusercontent.com/prototype-Z/VLK-Hub-Script/main/version.txt"
 local SCRIPTS_URL = "https://raw.githubusercontent.com/prototype-Z/VLK-Hub-Script/main/scripts.json"
-local MOTD_URL = "https://raw.githubusercontent.com/prototype-Z/VLK-Hub-Script/main/motd.txt"
+local MOTD_URL    = "https://raw.githubusercontent.com/prototype-Z/VLK-Hub-Script/main/motd.txt"
 
-local HttpService = game:GetService("HttpService")
-local Players = game:GetService("Players")
-local TeleportService = game:GetService("TeleportService")
+-- ▶ Services
+local HttpService      = game:GetService("HttpService")
+local Players          = game:GetService("Players")
+local TeleportService  = game:GetService("TeleportService")
+local StarterGui       = game:GetService("StarterGui")
 
-local FAVORITES_FOLDER = "VLK_Hub"
-local FAVORITES_FILE = FAVORITES_FOLDER .. "/Favorites.json"
-local CONFIG_FILE = FAVORITES_FOLDER .. "/Config.json"
+-- ▶ Local storage (executor must support FS APIs)
+local DATA_FOLDER   = "VLK_Hub"
+local FAVORITES_FILE= DATA_FOLDER .. "/Favorites.json"
+local CONFIG_FILE   = DATA_FOLDER .. "/Config.json"
 
-local HAVE_FS = (typeof(isfile) == "function") and (typeof(readfile) == "function") 
-    and (typeof(writefile) == "function") and (typeof(makefolder) == "function")
+local HAVE_FS = (typeof(isfile) == "function")
+            and (typeof(readfile) == "function")
+            and (typeof(writefile) == "function")
+            and (typeof(makefolder) == "function")
+            and (typeof(isfolder) == "function")
 
-if HAVE_FS and not isfolder(FAVORITES_FOLDER) then
-    makefolder(FAVORITES_FOLDER)
+if HAVE_FS and not isfolder(DATA_FOLDER) then
+    makefolder(DATA_FOLDER)
 end
 
+-- ▶ Rayfield
 local okRay, Rayfield = pcall(function()
     return loadstring(game:HttpGet("https://sirius.menu/rayfield"))()
 end)
 if not okRay or not Rayfield then
-    warn("[VLK Hub] Failed to load Rayfield!")
+    warn("[VLK Hub] Failed to load Rayfield UI")
     return
 end
 
+-- ▶ Window
 local Window = Rayfield:CreateWindow({
-    Name = "VLK Hub Pro++",
+    Name = "VLK Hub",
     Icon = "Home",
     LoadingTitle = "VLK Scripts",
     LoadingSubtitle = "by Velkzie",
     Theme = "Amethyst",
     ConfigurationSaving = {
         Enabled = true,
-        FolderName = "VLK_Hub",
+        FolderName = DATA_FOLDER,
         FileName = "VLK_Config"
     },
 })
 
+-- ▶ Notify helper
 local function notify(title, text, duration)
     Rayfield:Notify({ Title = title, Content = text, Duration = duration or 3 })
 end
 
--- Theme system
+-- //////////////////////////////////////////////////////////////
+-- Animated Gradient + Theme Selector (persistent)
+-- //////////////////////////////////////////////////////////////
 local Themes = {
     ["Purple/Black"] = ColorSequence.new{
         ColorSequenceKeypoint.new(0, Color3.fromRGB(100, 0, 150)),
@@ -60,32 +80,38 @@ local Themes = {
         ColorSequenceKeypoint.new(0, Color3.fromRGB(0, 85, 255)),
         ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 255, 255))
     },
+    ["Galaxy"] = ColorSequence.new{
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(80, 0, 120)),
+        ColorSequenceKeypoint.new(0.5, Color3.fromRGB(20, 20, 60)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(0, 0, 0))
+    },
     ["Sunset"] = ColorSequence.new{
-        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 85, 0)),
-        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 127))
+        ColorSequenceKeypoint.new(0, Color3.fromRGB(255, 130, 0)),
+        ColorSequenceKeypoint.new(1, Color3.fromRGB(255, 0, 120))
     }
 }
-
 local SelectedTheme = "Purple/Black"
 
 local function saveConfig()
-    if HAVE_FS then
-        writefile(CONFIG_FILE, HttpService:JSONEncode({ Theme = SelectedTheme }))
-    end
+    if not HAVE_FS then return end
+    writefile(CONFIG_FILE, HttpService:JSONEncode({ Theme = SelectedTheme }))
 end
 
 local function loadConfig()
-    if HAVE_FS and isfile(CONFIG_FILE) then
-        local ok, data = pcall(function() return readfile(CONFIG_FILE) end)
-        if ok and data then
-            local decoded = HttpService:JSONDecode(data)
-            if decoded.Theme then SelectedTheme = decoded.Theme end
+    if not HAVE_FS or not isfile(CONFIG_FILE) then return end
+    local ok, data = pcall(function() return readfile(CONFIG_FILE) end)
+    if ok and data and #data > 0 then
+        local decoded = HttpService:JSONDecode(data)
+        if decoded and decoded.Theme and Themes[decoded.Theme] then
+            SelectedTheme = decoded.Theme
         end
     end
 end
 loadConfig()
 
 local function applyGradient(uiObject, colorSeq)
+    if not uiObject or not uiObject:IsA("GuiObject") then return end
+    if uiObject:FindFirstChildOfClass("UIGradient") then return end
     local gradient = Instance.new("UIGradient")
     gradient.Color = colorSeq
     gradient.Rotation = 0
@@ -95,66 +121,99 @@ local function applyGradient(uiObject, colorSeq)
             for i = 0, 360, 1 do
                 gradient.Rotation = i
                 task.wait(0.03)
+                if not gradient.Parent then break end
             end
         end
     end)
 end
 
-task.spawn(function()
+-- Apply gradient to big Rayfield frames
+local function applyThemeEverywhere()
     task.wait(1)
     local coreGui = game:GetService("CoreGui")
-    local rfGui = coreGui:FindFirstChild("Rayfield", true)
-    if rfGui then
-        for _, frame in pairs(rfGui:GetDescendants()) do
-            if frame:IsA("Frame") and frame.BackgroundTransparency < 1 then
-                applyGradient(frame, Themes[SelectedTheme])
-            end
+    local rfGui = nil
+    for _, gui in ipairs(coreGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Name:lower():find("rayfield") then
+            rfGui = gui
+            break
         end
     end
-end)
+    if not rfGui then return end
+    for _, d in ipairs(rfGui:GetDescendants()) do
+        if d:IsA("Frame") and d.BackgroundTransparency < 1 then
+            applyGradient(d, Themes[SelectedTheme] or Themes["Purple/Black"])
+        end
+    end
+end
+task.spawn(applyThemeEverywhere)
 
--- Safe script loader
+-- Theme tab
+local ThemeTab = Window:CreateTab("🎨 Theme")
+ThemeTab:CreateLabel("Animated Gradient Theme")
+ThemeTab:CreateButton({ Name = "Purple/Black", Callback = function()
+    SelectedTheme = "Purple/Black"; saveConfig(); applyThemeEverywhere(); notify("Theme", "Applied Purple/Black", 2)
+end})
+ThemeTab:CreateButton({ Name = "Blue/Cyan", Callback = function()
+    SelectedTheme = "Blue/Cyan"; saveConfig(); applyThemeEverywhere(); notify("Theme", "Applied Blue/Cyan", 2)
+end})
+ThemeTab:CreateButton({ Name = "Galaxy", Callback = function()
+    SelectedTheme = "Galaxy"; saveConfig(); applyThemeEverywhere(); notify("Theme", "Applied Galaxy", 2)
+end})
+ThemeTab:CreateButton({ Name = "Sunset", Callback = function()
+    SelectedTheme = "Sunset"; saveConfig(); applyThemeEverywhere(); notify("Theme", "Applied Sunset", 2)
+end})
+
+-- //////////////////////////////////////////////////////////////
+-- Safe loader + helpers
+-- //////////////////////////////////////////////////////////////
+local function fetch(url)
+    local ok, data = pcall(function() return game:HttpGet(url) end)
+    if ok and data and #data > 0 then return data end
+    return nil
+end
+
 local function safeLoad(name, url)
     notify("Loading " .. name, "Please wait...", 2)
     task.spawn(function()
-        local ok, data = pcall(function()
-            return game:HttpGet(url)
-        end)
-        if not ok or not data or data == "" then
+        local data = fetch(url)
+        if not data then
             notify("Error", "Failed to load " .. name, 4)
             return
         end
-        local runOk, err = pcall(function()
-            loadstring(data)()
-        end)
-        if runOk then
-            notify("✅ Loaded " .. name, "Enjoy!", 2)
-        else
-            notify("❌ Script Error", err, 5)
-        end
+        local ok, err = pcall(function() loadstring(data)() end)
+        if ok then notify("✅ Loaded " .. name, "Enjoy!", 2) else notify("❌ Script Error", err, 5) end
     end)
 end
 
--- Load scripts.json
+-- //////////////////////////////////////////////////////////////
+-- Load scripts.json (supports value as string URL OR {url, description, icon})
+-- //////////////////////////////////////////////////////////////
 local scriptsData = {}
+local function decodeScriptEntry(k, v)
+    -- returns name, url, desc, icon
+    if type(v) == "string" then
+        return k, v, nil, nil
+    elseif type(v) == "table" then
+        return k, v.url, v.description, v.icon
+    end
+end
+
 local function loadScriptsJson()
-    local ok, data = pcall(function()
-        return game:HttpGet(SCRIPTS_URL)
-    end)
-    if not ok or not data or data == "" then
+    local raw = fetch(SCRIPTS_URL)
+    if not raw then
         notify("Error", "Failed to load scripts.json", 5)
         return
     end
-    local okDecode, decoded = pcall(function()
-        return HttpService:JSONDecode(data)
-    end)
-    if okDecode and type(decoded) == "table" then
+    local ok, decoded = pcall(function() return HttpService:JSONDecode(raw) end)
+    if ok and type(decoded) == "table" then
         scriptsData = decoded
+    else
+        notify("Error", "scripts.json is invalid", 5)
     end
 end
 loadScriptsJson()
 
--- Auto-refresh
+-- Auto-refresh every 5 minutes (UI will rebuild lazily on demand)
 task.spawn(function()
     while true do
         task.wait(300)
@@ -162,102 +221,211 @@ task.spawn(function()
     end
 end)
 
--- Favorites
+-- //////////////////////////////////////////////////////////////
+-- Favorites (plain) — persistent list of {name,url}
+-- //////////////////////////////////////////////////////////////
 local favorites = {}
 local function loadFavorites()
-    if HAVE_FS and isfile(FAVORITES_FILE) then
+    if not HAVE_FS then return end
+    if isfile(FAVORITES_FILE) then
         local ok, data = pcall(function() return readfile(FAVORITES_FILE) end)
-        if ok and data then
-            local decoded = HttpService:JSONDecode(data)
-            favorites = decoded or {}
+        if ok and data and #data > 0 then
+            local dec = HttpService:JSONDecode(data)
+            if type(dec) == "table" then favorites = dec end
         end
+    else
+        writefile(FAVORITES_FILE, HttpService:JSONEncode({}))
     end
 end
 local function saveFavorites()
-    if HAVE_FS then
-        writefile(FAVORITES_FILE, HttpService:JSONEncode(favorites))
-    end
+    if not HAVE_FS then return end
+    writefile(FAVORITES_FILE, HttpService:JSONEncode(favorites))
 end
 loadFavorites()
 
 local function addFavorite(name, url)
     table.insert(favorites, { name = name, url = url })
     saveFavorites()
+    notify("Added to Favorites", name .. " added.", 2)
 end
-
--- Build Tabs
-if scriptsData then
-    for category, scripts in pairs(scriptsData) do
-        local tab = Window:CreateTab("📂 " .. category)
-        for name, url in pairs(scripts) do
-            tab:CreateButton({
-                Name = name,
-                Callback = function() safeLoad(name, url) end
-            })
-            tab:CreateButton({
-                Name = "⭐ Favorite: " .. name,
-                Callback = function() addFavorite(name, url) end
-            })
-        end
+local function removeFavoriteByName(name)
+    for i,v in ipairs(favorites) do
+        if v.name == name then table.remove(favorites, i) break end
     end
+    saveFavorites()
 end
 
--- Favorites Tab
-local FavoritesTab = Window:CreateTab("⭐ Favorites")
-for _, fav in ipairs(favorites) do
-    FavoritesTab:CreateButton({
-        Name = fav.name,
-        Callback = function() safeLoad(fav.name, fav.url) end
+-- //////////////////////////////////////////////////////////////
+-- UI: Script Details panel
+-- //////////////////////////////////////////////////////////////
+local DetailsTab = Window:CreateTab("📄 Details")
+local function showScriptDetails(name, url, desc, icon, category)
+    DetailsTab:ClearElements()
+    DetailsTab:CreateLabel("Script: " .. (name or "Unknown"))
+    if category then DetailsTab:CreateLabel("Category: " .. tostring(category)) end
+    if icon then DetailsTab:CreateLabel("Icon: " .. tostring(icon)) end
+    DetailsTab:CreateParagraph({
+        Title = "Description",
+        Content = desc or "No description provided."
+    })
+    DetailsTab:CreateButton({
+        Name = "▶ Run Script",
+        Callback = function() safeLoad(name, url) end
+    })
+    DetailsTab:CreateButton({
+        Name = "⭐ Add to Favorites",
+        Callback = function() addFavorite(name, url) end
     })
 end
 
--- Search Tab
-local SearchTab = Window:CreateTab("🔍 Search")
-SearchTab:CreateInput({
-    Name = "Search Script",
-    PlaceholderText = "Type script name...",
-    RemoveTextAfterFocusLost = false,
-    Callback = function(text)
-        local found = false
-        for category, scripts in pairs(scriptsData) do
-            for name, url in pairs(scripts) do
-                if string.find(string.lower(name), string.lower(text)) then
-                    safeLoad(name, url)
-                    found = true
-                    break
+-- //////////////////////////////////////////////////////////////
+-- Build Tabs dynamically from scripts.json
+-- //////////////////////////////////////////////////////////////
+local categoryTabs = {}
+local function buildScriptTabs()
+    for category, entries in pairs(scriptsData) do
+        local tab = categoryTabs[category]
+        if not tab then
+            tab = Window:CreateTab("📂 " .. tostring(category))
+            categoryTabs[category] = tab
+        else
+            if tab.ClearElements then tab:ClearElements() end
+        end
+
+        for k, v in pairs(entries) do
+            local name, url, desc, icon = decodeScriptEntry(k, v)
+            if url then
+                tab:CreateButton({
+                    Name = (name or "Unnamed"),
+                    Callback = function()
+                        showScriptDetails(name, url, desc, icon, category)
+                    end
+                })
+                tab:CreateButton({
+                    Name = "⭐ Favorite: " .. (name or "Unnamed"),
+                    Callback = function() addFavorite(name, url) end
+                })
+                if desc then
+                    tab:CreateParagraph({ Title = "Info", Content = desc })
                 end
             end
-            if found then break end
         end
-        if not found then
-            notify("No Script Found", "Try another search term", 3)
+    end
+end
+buildScriptTabs()
+
+-- Manual reload that also rebuilds UI
+local function reloadScriptsAndUI()
+    loadScriptsJson()
+    buildScriptTabs()
+    notify("Scripts Reloaded", "Pulled latest scripts.json and rebuilt tabs.", 3)
+end
+
+-- //////////////////////////////////////////////////////////////
+-- Favorites Tab (plain)
+-- //////////////////////////////////////////////////////////////
+local FavoritesTab = Window:CreateTab("⭐ Favorites")
+local function drawFavorites()
+    if FavoritesTab.ClearElements then FavoritesTab:ClearElements() end
+    if #favorites == 0 then
+        FavoritesTab:CreateLabel("No favorites yet.")
+        return
+    end
+    for _, fav in ipairs(favorites) do
+        FavoritesTab:CreateButton({
+            Name = "▶ " .. fav.name,
+            Callback = function() safeLoad(fav.name, fav.url) end
+        })
+        FavoritesTab:CreateButton({
+            Name = "🗑 Remove " .. fav.name,
+            Callback = function() removeFavoriteByName(fav.name) drawFavorites() end
+        })
+    end
+end
+drawFavorites()
+
+-- //////////////////////////////////////////////////////////////
+-- Search Tab (live search across all categories — shows details panel)
+-- //////////////////////////////////////////////////////////////
+local SearchTab = Window:CreateTab("🔍 Search")
+SearchTab:CreateInput({
+    Name = "Search All Scripts",
+    PlaceholderText = "Type a name...",
+    RemoveTextAfterFocusLost = false,
+    Callback = function(text)
+        local query = string.lower(text or "")
+        if query == "" then
+            notify("Tip", "Type to search your scripts.json", 2)
+            return
         end
+        for category, entries in pairs(scriptsData) do
+            for k, v in pairs(entries) do
+                local name, url, desc, icon = decodeScriptEntry(k, v)
+                if name and string.find(string.lower(name), query, 1, true) then
+                    showScriptDetails(name, url, desc, icon, category)
+                    return
+                end
+            end
+        end
+        notify("No Match", "Try a different keyword.", 2)
     end
 })
 
+-- //////////////////////////////////////////////////////////////
 -- Quick Tools Tab
+-- //////////////////////////////////////////////////////////////
 local ToolsTab = Window:CreateTab("🛠 Quick Tools")
-ToolsTab:CreateButton({ Name = "Anti-AFK", Callback = function()
-    local vu = game:GetService("VirtualUser")
-    Players.LocalPlayer.Idled:Connect(function()
-        vu:Button2Down(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
-        task.wait(1)
-        vu:Button2Up(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
-    end)
-    notify("Anti-AFK Enabled", "You will no longer be kicked for idling.")
-end})
-ToolsTab:CreateButton({ Name = "Rejoin Server", Callback = function()
-    TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, Players.LocalPlayer)
-end})
-ToolsTab:CreateButton({ Name = "Server Hop", Callback = function()
-    TeleportService:Teleport(game.PlaceId)
-end})
-ToolsTab:CreateButton({ Name = "Copy JobID", Callback = function()
-    setclipboard(game.JobId)
-    notify("Copied", "JobID copied to clipboard.")
-end})
+ToolsTab:CreateButton({
+    Name = "Anti-AFK",
+    Callback = function()
+        local vu = game:GetService("VirtualUser")
+        Players.LocalPlayer.Idled:Connect(function()
+            vu:Button2Down(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
+            task.wait(1)
+            vu:Button2Up(Vector2.new(0,0),workspace.CurrentCamera.CFrame)
+        end)
+        notify("Anti-AFK Enabled", "You won't be kicked for idling.", 3)
+    end
+})
+ToolsTab:CreateButton({
+    Name = "Rejoin Server",
+    Callback = function()
+        TeleportService:TeleportToPlaceInstance(game.PlaceId, game.JobId, Players.LocalPlayer)
+    end
+})
+ToolsTab:CreateButton({
+    Name = "Server Hop",
+    Callback = function()
+        TeleportService:Teleport(game.PlaceId)
+    end
+})
+ToolsTab:CreateButton({
+    Name = "Copy Place ID",
+    Callback = function()
+        if setclipboard then setclipboard(tostring(game.PlaceId)) end
+        notify("Copied", "PlaceId copied to clipboard.", 2)
+    end
+})
+ToolsTab:CreateButton({
+    Name = "Copy Job ID",
+    Callback = function()
+        if setclipboard then setclipboard(tostring(game.JobId)) end
+        notify("Copied", "JobId copied to clipboard.", 2)
+    end
+})
+ToolsTab:CreateInput({
+    Name = "Join Friend (username)",
+    PlaceholderText = "Type exact username...",
+    RemoveTextAfterFocusLost = true,
+    Callback = function(username)
+        if not username or username == "" then return end
+        notify("Info", "Join Friend placeholder — needs additional API to locate friend server.", 4)
+    end
+})
 
--- Credits Tab + MOTD
+-- //////////////////////////////////////////////////////////////
+-- Credits / Update / MOTD
+-- //////////////////////////////////////////////////////////////
 local CreditsTab = Window:CreateTab("📜 Credits")
 CreditsTab:CreateLabel("Developed by: Velkzie 🖤")
 CreditsTab:CreateLabel("Version: " .. HUB_VERSION)
@@ -265,26 +433,40 @@ CreditsTab:CreateParagraph({
     Title = "About",
     Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
 })
-CreditsTab:CreateButton({ Name = "Check for Updates", Callback = function()
-    local ok, latest = pcall(function()
-        return game:HttpGet(VERSION_URL)
-    end)
-    if ok and latest and latest ~= HUB_VERSION then
-        notify("Update Available!", "Your version: " .. HUB_VERSION .. " | Latest: " .. latest, 5)
-    else
-        notify("Up to Date", "You're running the latest version!", 3)
+CreditsTab:CreateButton({
+    Name = "Check for Updates",
+    Callback = function()
+        local latest = fetch(VERSION_URL)
+        if latest and latest ~= "" and latest ~= HUB_VERSION then
+            notify("Update Available!", "Your version: " .. HUB_VERSION .. " | Latest: " .. latest, 5)
+        else
+            notify("Up to Date", "You're running the latest version!", 3)
+        end
     end
-end})
+})
+CreditsTab:CreateButton({
+    Name = "🔄 Reload Scripts (from GitHub)",
+    Callback = reloadScriptsAndUI
+})
 
--- MOTD from GitHub
-local ok, motd = pcall(function()
-    return game:HttpGet(MOTD_URL)
-end)
-if ok and motd and motd ~= "" then
-    CreditsTab:CreateParagraph({
-        Title = "Announcements",
-        Content = motd
-    })
+-- MOTD (popup + in-credits)
+local motd = fetch(MOTD_URL)
+if motd and #motd > 0 then
+    -- Popup toast
+    pcall(function()
+        StarterGui:SetCore("SendNotification", {
+            Title = "VLK Hub — MOTD",
+            Text  = string.sub(motd, 1, 150),
+            Duration = 6
+        })
+    end)
+    -- Full in credits
+    CreditsTab:CreateParagraph({ Title = "Announcements", Content = motd })
+else
+    CreditsTab:CreateParagraph({ Title = "Announcements", Content = "No announcements right now." })
 end
 
+-- //////////////////////////////////////////////////////////////
+-- Welcome
+-- //////////////////////////////////////////////////////////////
 notify("VLK Hub Pro++ Loaded!", "Welcome back, Velkzie 💙", 4)
