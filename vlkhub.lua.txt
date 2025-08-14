@@ -2,6 +2,7 @@
     VLK Hub (Pro Edition)
     ✦ By Velkzie ✦
     Dynamic, Safe, and Easy to Update
+    + Animated Gradient UI
 ]]
 
 local HUB_VERSION = "1.1.0"
@@ -39,6 +40,86 @@ local Window = Rayfield:CreateWindow({
         FileName = "VLK_Config"
     },
 })
+
+----------------------------------------------------------------
+-- Animated purple→black gradient background for Rayfield
+----------------------------------------------------------------
+local function applyAnimatedGradientTo(instance)
+    if not instance or not instance:IsA("GuiObject") then return end
+    -- Avoid stacking multiple gradients
+    if instance:FindFirstChildOfClass("UIGradient") then return end
+
+    local grad = Instance.new("UIGradient")
+    grad.Color = ColorSequence.new({
+        ColorSequenceKeypoint.new(0.00, Color3.fromRGB(120, 0, 180)), -- bright purple
+        ColorSequenceKeypoint.new(0.50, Color3.fromRGB(45, 0, 75)),   -- deep purple
+        ColorSequenceKeypoint.new(1.00, Color3.fromRGB(0, 0, 0))      -- black
+    })
+    grad.Rotation = 0
+    grad.Transparency = NumberSequence.new(0) -- fully visible
+    grad.Parent = instance
+
+    task.spawn(function()
+        while grad.Parent do
+            -- slow rotation loop (smooth, low CPU)
+            for i = 0, 360, 1 do
+                grad.Rotation = i
+                task.wait(0.03)
+                if not grad.Parent then break end
+            end
+        end
+    end)
+end
+
+-- Find Rayfield's main containers and apply the gradient
+task.spawn(function()
+    -- small delay to ensure Rayfield builds its UI
+    task.wait(1)
+
+    local coreGui = game:GetService("CoreGui")
+    local rfRoot = nil
+    -- Try common Rayfield root names, fall back to any ScreenGui containing "Rayfield"
+    for _, gui in ipairs(coreGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and (gui.Name:lower():find("rayfield")) then
+            rfRoot = gui
+            break
+        end
+    end
+    -- if not found by name, search descendants for a Frame named "Main"
+    if not rfRoot then
+        for _, d in ipairs(coreGui:GetDescendants()) do
+            if d:IsA("Frame") and d.Name:lower():find("main") and d:FindFirstAncestorOfClass("ScreenGui") then
+                rfRoot = d:FindFirstAncestorOfClass("ScreenGui")
+                break
+            end
+        end
+    end
+
+    if rfRoot then
+        -- Try to get big primary frames to look nice:
+        -- Main container, sidebar, pages, etc.
+        local candidates = {}
+        for _, d in ipairs(rfRoot:GetDescendants()) do
+            if d:IsA("Frame") or d:IsA("ScrollingFrame") then
+                -- Prefer larger frames (backgrounds) by size heuristic
+                local abs = d.AbsoluteSize
+                if abs.X >= 200 and abs.Y >= 150 then
+                    table.insert(candidates, d)
+                end
+            end
+        end
+        -- Apply to top 1–3 biggest frames for a classy layered look
+        table.sort(candidates, function(a,b)
+            local sa = a.AbsoluteSize.X * a.AbsoluteSize.Y
+            local sb = b.AbsoluteSize.X * b.AbsoluteSize.Y
+            return sa > sb
+        end)
+        for i, frame in ipairs(candidates) do
+            if i > 3 then break end
+            applyAnimatedGradientTo(frame)
+        end
+    end
+end)
 
 -- Notify helper
 local function notify(title, text, duration)
@@ -102,7 +183,7 @@ local function loadScriptsJson()
 end
 loadScriptsJson()
 
--- Reload scripts button
+-- Reload scripts button helper
 local function reloadScripts()
     loadScriptsJson()
     notify("Scripts Reloaded", "Latest scripts.json loaded from GitHub!", 3)
@@ -200,6 +281,9 @@ if scriptsData then
                 Name = "⭐ Add to Favorites: " .. tostring(name),
                 Callback = function()
                     addFavorite(name, url)
+                    if typeof(_G.__refreshFavoritesTab) == "function" then
+                        task.delay(0.05, _G.__refreshFavoritesTab)
+                    end
                 end
             })
         end
@@ -216,35 +300,37 @@ local function drawFavorites()
     if not HAVE_FS then
         FavoritesTab:CreateParagraph({
             Title = "Favorites Disabled",
-            Content = "Your executor doesn't support file APIs (readfile/writefile). Favorites won't persist."
+            Content = "Executor doesn't support file APIs (readfile/writefile)."
         })
     end
     if #favorites == 0 then
-        FavoritesTab:CreateLabel("No favorites yet. Add some from any category!")
+        FavoritesTab:CreateLabel("No favorites yet.")
         return
     end
     for _, fav in ipairs(favorites) do
         FavoritesTab:CreateButton({
             Name = "▶ " .. fav.name,
-            Callback = function()
-                safeLoad(fav.name, fav.url)
-            end
+            Callback = function() safeLoad(fav.name, fav.url) end
         })
         FavoritesTab:CreateButton({
             Name = "🗑️ Remove: " .. fav.name,
-            Callback = function()
-                removeFavorite(fav.name)
-                drawFavorites()
-            end
+            Callback = function() removeFavorite(fav.name) drawFavorites() end
         })
     end
+    FavoritesTab:CreateButton({
+        Name = "🔄 Reload Favorites (from file)",
+        Callback = function()
+            loadFavorites()
+            drawFavorites()
+            notify("Reloaded", "Favorites reloaded from file.", 3)
+        end
+    })
 end
-
 _G.__refreshFavoritesTab = drawFavorites
 drawFavorites()
 
 ----------------------------------------------------------------
--- Search Tab
+-- Search Tab (your scripts.json)
 ----------------------------------------------------------------
 local SearchTab = Window:CreateTab("🔍 Search")
 SearchTab:CreateInput({
@@ -253,24 +339,16 @@ SearchTab:CreateInput({
     RemoveTextAfterFocusLost = false,
     Callback = function(text)
         local query = string.lower(text or "")
-        if query == "" then
-            notify("Tip", "Type a script name to search.", 2)
-            return
-        end
-        local found = false
+        if query == "" then notify("Tip", "Type a script name to search.", 2) return end
         for category, scripts in pairs(scriptsData) do
             for name, url in pairs(scripts) do
                 if string.find(string.lower(name), query, 1, true) then
                     safeLoad(name, url)
-                    found = true
-                    break
+                    return
                 end
             end
-            if found then break end
         end
-        if not found then
-            notify("No Script Found", "Try another search term", 3)
-        end
+        notify("No Script Found", "Try another search term", 3)
     end
 })
 
@@ -284,14 +362,8 @@ CreditsTab:CreateParagraph({
     Title = "About",
     Content = "VLK Hub is a safe and fun Roblox script hub developed by Velkzie. No malicious code — just clean fun."
 })
-CreditsTab:CreateButton({
-    Name = "Check for Updates",
-    Callback = checkForUpdates
-})
-CreditsTab:CreateButton({
-    Name = "🔄 Reload Scripts (from GitHub)",
-    Callback = reloadScripts
-})
+CreditsTab:CreateButton({ Name = "Check for Updates", Callback = checkForUpdates })
+CreditsTab:CreateButton({ Name = "🔄 Reload Scripts (from GitHub)", Callback = reloadScripts })
 
 -- Welcome
 notify("VLK Hub Pro Loaded!", "Welcome back, Velkzie 💙", 4)
